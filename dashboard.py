@@ -28,7 +28,6 @@ st.sidebar.header("🏛️ Filtros de Consulta")
 lista_sedes = ["TODAS (NIVEL NACIONAL)"] + sorted(df['Sede'].unique().tolist())
 sede_seleccionada = st.sidebar.selectbox("Seleccione ODANC / Sede Central:", lista_sedes)
 meses_proyeccion = st.sidebar.slider("Meses a proyectar:", 2, 12, 6)
-simulador_prod = st.sidebar.slider("Simular incremento de producción (%):", -20, 50, 0, 5)
 
 if sede_seleccionada == "TODAS (NIVEL NACIONAL)":
     df_filtrado = df.groupby(['Fecha', 'Anio'])[['Tramite', 'Impugnacion', 'Carga_Total', 'Produccion']].sum().reset_index()
@@ -64,8 +63,7 @@ with tab1:
 
     fechas_futuras = pd.date_range(start=df_filtrado['Fecha'].max() + pd.DateOffset(months=1), periods=meses_proyeccion, freq='MS')
     proy_carga = generar_proyeccion(df_filtrado['Carga_Total'].values, meses_proyeccion)
-    proy_prod_base = generar_proyeccion(df_filtrado['Produccion'].values, meses_proyeccion)
-    proy_prod_simulada = np.round(proy_prod_base * (1 + simulador_prod / 100)).astype(int)
+    proy_prod = generar_proyeccion(df_filtrado['Produccion'].values, meses_proyeccion)
 
     col_izq, col_der = st.columns(2)
     with col_izq:
@@ -87,13 +85,19 @@ with tab1:
     st.subheader("⚖️ Histórico y Proyección de Producción de Resoluciones")
     fig_prod = go.Figure()
     fig_prod.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Produccion'], name='Resoluciones Emitidas (Real)', marker_color='#10b981'))
-    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod_simulada, mode='lines+markers', name=f'Proyección Resoluciones ({simulador_prod:+d}%)', line=dict(color='#f43f5e', width=3, dash='dot')))
+    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Estimada', line=dict(color='#f43f5e', width=3, dash='dot')))
     fig_prod.update_layout(height=350, hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20))
     st.plotly_chart(fig_prod, use_container_width=True)
 
     st.subheader("📋 Tabla de Estimaciones Mensuales")
-    df_tabla_proy = pd.DataFrame({'Mes Proyectado': fechas_futuras.strftime('%Y-%m'), 'Carga Total Estimada': proy_carga, 'Producción Estimada (Base)': proy_prod_base, f'Producción Simulada ({simulador_prod:+d}%)': proy_prod_simulada})
+    df_tabla_proy = pd.DataFrame({
+        'Mes Proyectado': fechas_futuras.strftime('%Y-%m'),
+        'Carga Total Estimada': proy_carga,
+        'Producción Estimada (Resoluciones)': proy_prod
+    })
     st.dataframe(df_tabla_proy, use_container_width=True, hide_index=True)
+
+    st.info("ℹ️ **Técnica Estadística de Proyección:** Se utiliza el modelo de series de tiempo **Suavizamiento Exponencial de Holt-Winters con Tendencia Amortiguada** (ciclo estacional de 12 meses). Esta metodología analiza el historial mensual desde enero de 2023 otorgando mayor peso al desempeño reciente de cada sede e incorporando las variaciones habituales de cada época del año (como periodos vacacionales o cierres anuales) para estimar el escenario esperado manteniendo las condiciones operativas actuales.")
 
 with tab2:
     col_titulo, col_filtro = st.columns(2)
@@ -141,8 +145,5 @@ with tab2:
     fig_rank = go.Figure()
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color='#0284c7'))
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color='#f97316'))
-    fig_rank.update_layout(barmode='stack', height=800, xaxis_title="Cantidad de Expedientes", margin=dict(l=20, r=20, t=20, b=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    st.plotly_chart(fig_rank, use_container_width=True)
-
 
 
