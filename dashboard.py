@@ -10,8 +10,8 @@ st.set_page_config(page_title="ANC - Dashboard Estadístico (UIA)", page_icon="�
 
 st.markdown("""
 <div style="background: linear-gradient(90deg, #7f1d1d 0%, #991b1b 60%, #1e293b 100%); padding: 18px 24px; border-radius: 10px; border-left: 6px solid #f59e0b; margin-bottom: 18px;">
-    <h2 style="color: white; margin: 0;">⚖️ Autoridad Nacional de Control del Poder Judicial</h2>
-    <p style="color: #e2e8f0; margin: 4px 0 0 0; font-size: 14px;">Dashboard de Análisis Estadístico, Control de Carga y Proyecciones — Unidad de Inteligencia y Análisis (UIA)</p>
+    <h2 style="color: white; margin: 0; font-size: 22px;">⚖️ Autoridad Nacional de Control del Poder Judicial</h2>
+    <p style="color: #e2e8f0; margin: 4px 0 0 0; font-size: 13px;">Dashboard de Análisis Estadístico, Control de Carga y Proyecciones — Unidad de Inteligencia y Análisis (UIA)</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -53,6 +53,14 @@ col4.metric("Producción Acum. (Ene - Oct 2026)", f"{prod_acum_2026:,}", f"Oct: 
 st.markdown("---")
 tab1, tab2 = st.tabs(["📈 Proyecciones y Tendencias", "📊 Análisis Descriptivo y Ranking"])
 
+# Estilo responsivo (leyenda arriba para que no aplaste el gráfico en celular)
+layout_movil = dict(
+    hovermode="x unified",
+    margin=dict(l=10, r=10, t=45, b=20),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+)
+config_plotly = {"displayModeBar": False}
+
 with tab1:
     def generar_proyeccion(serie, pasos):
         try:
@@ -71,23 +79,23 @@ with tab1:
         fig_carga = go.Figure()
         fig_carga.add_trace(go.Scatter(x=df_filtrado['Fecha'], y=df_filtrado['Carga_Total'], mode='lines+markers', name='Carga Total Real', line=dict(color='#38bdf8', width=3)))
         fig_carga.add_trace(go.Scatter(x=[df_filtrado['Fecha'].iloc[-1]] + list(fechas_futuras), y=[df_filtrado['Carga_Total'].iloc[-1]] + list(proy_carga), mode='lines+markers', name='Proyección Estimada', line=dict(color='#f59e0b', width=3, dash='dash')))
-        fig_carga.update_layout(height=400, hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20))
-        st.plotly_chart(fig_carga, use_container_width=True)
+        fig_carga.update_layout(height=360, **layout_movil)
+        st.plotly_chart(fig_carga, use_container_width=True, config=config_plotly)
 
     with col_der:
         st.subheader("📊 Composición de la Carga (Trámite vs Impugnación)")
         fig_comp = go.Figure()
         fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Tramite'], name='En Trámite', marker_color='#0284c7'))
         fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Impugnacion'], name='Resuelto por Impugnar', marker_color='#f97316'))
-        fig_comp.update_layout(barmode='stack', height=400, hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20))
-        st.plotly_chart(fig_comp, use_container_width=True)
+        fig_comp.update_layout(barmode='stack', height=360, **layout_movil)
+        st.plotly_chart(fig_comp, use_container_width=True, config=config_plotly)
 
     st.subheader("⚖️ Histórico y Proyección de Producción de Resoluciones")
     fig_prod = go.Figure()
     fig_prod.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Produccion'], name='Resoluciones Emitidas (Real)', marker_color='#10b981'))
     fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Estimada', line=dict(color='#f43f5e', width=3, dash='dot')))
-    fig_prod.update_layout(height=350, hovermode="x unified", margin=dict(l=20, r=20, t=30, b=20))
-    st.plotly_chart(fig_prod, use_container_width=True)
+    fig_prod.update_layout(height=340, **layout_movil)
+    st.plotly_chart(fig_prod, use_container_width=True, config=config_plotly)
 
     st.subheader("📋 Tabla de Estimaciones Mensuales")
     df_tabla_proy = pd.DataFrame({'Mes Proyectado': fechas_futuras.strftime('%Y-%m'), 'Carga Total Estimada': proy_carga, 'Producción Estimada (Resoluciones)': proy_prod})
@@ -124,8 +132,8 @@ with tab2:
         fig_mes.add_trace(go.Bar(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Tramite'], name='En Trámite', marker_color='#0284c7'))
         fig_mes.add_trace(go.Bar(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Impugnacion'], name='Resuelto por Impugnar', marker_color='#f97316'))
         fig_mes.add_trace(go.Scatter(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Produccion'], mode='lines+markers', name='Producción (Resoluciones)', line=dict(color='#10b981', width=3)))
-        fig_mes.update_layout(barmode='stack', height=380, hovermode="x unified", margin=dict(l=20, r=20, t=20, b=20))
-        st.plotly_chart(fig_mes, use_container_width=True)
+        fig_mes.update_layout(barmode='stack', height=360, **layout_movil)
+        st.plotly_chart(fig_mes, use_container_width=True, config=config_plotly)
 
     st.subheader("📅 Resumen Comparativo Anual")
     resumen_anual = df_filtrado.groupby('Anio').agg(Meses=('Fecha', 'count'), Prom_Carga=('Carga_Total', 'mean'), Prom_Tramite=('Tramite', 'mean'), Prom_Impug=('Impugnacion', 'mean'), Prom_Prod=('Produccion', 'mean'), Total_Prod=('Produccion', 'sum')).reset_index()
@@ -140,13 +148,13 @@ with tab2:
     df_ranking = df[df['Fecha'] == fecha_corte_rank].sort_values('Carga_Total', ascending=True)
     fig_rank = go.Figure()
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color='#0284c7'))
-    fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color='#f97316'))
     df_ranking = df[df['Fecha'] == fecha_corte_rank].sort_values('Carga_Total', ascending=True)
     fig_rank = go.Figure()
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color='#0284c7'))
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color='#f97316'))
     fig_rank.update_layout(barmode='stack', height=800, xaxis_title="Cantidad de Expedientes", margin=dict(l=20, r=20, t=20, b=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_rank, use_container_width=True)
+
 
 
 
