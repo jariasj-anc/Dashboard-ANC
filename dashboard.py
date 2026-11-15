@@ -90,11 +90,7 @@ with tab1:
     st.plotly_chart(fig_prod, use_container_width=True)
 
     st.subheader("📋 Tabla de Estimaciones Mensuales")
-    df_tabla_proy = pd.DataFrame({
-        'Mes Proyectado': fechas_futuras.strftime('%Y-%m'),
-        'Carga Total Estimada': proy_carga,
-        'Producción Estimada (Resoluciones)': proy_prod
-    })
+    df_tabla_proy = pd.DataFrame({'Mes Proyectado': fechas_futuras.strftime('%Y-%m'), 'Carga Total Estimada': proy_carga, 'Producción Estimada (Resoluciones)': proy_prod})
     st.dataframe(df_tabla_proy, use_container_width=True, hide_index=True)
 
     st.info("ℹ️ **Técnica Estadística de Proyección:** Se utiliza el modelo de series de tiempo **Suavizamiento Exponencial de Holt-Winters con Tendencia Amortiguada** (ciclo estacional de 12 meses). Esta metodología analiza el historial mensual desde enero de 2023 otorgando mayor peso al desempeño reciente de cada sede e incorporando las variaciones habituales de cada época del año (como periodos vacacionales o cierres anuales) para estimar el escenario esperado manteniendo las condiciones operativas actuales.")
@@ -145,5 +141,14 @@ with tab2:
     fig_rank = go.Figure()
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color='#0284c7'))
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color='#f97316'))
+    df_ranking = df[df['Fecha'] == fecha_corte_rank].sort_values('Carga_Total', ascending=True)
+    fig_rank = go.Figure()
+    fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color='#0284c7'))
+    fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color='#f97316'))
+    fig_rank.update_layout(barmode='stack', height=800, xaxis_title="Cantidad de Expedientes", margin=dict(l=20, r=20, t=20, b=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig_rank, use_container_width=True)
+
+
+
 
 
