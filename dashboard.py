@@ -76,23 +76,37 @@ layout_movil = dict(
 config_plotly = {"displayModeBar": False}
 
 with tab1:
-    def generar_proyeccion(serie, pasos):
+    def generar_proyeccion_con_rango(serie, pasos):
         try:
-            pred = ExponentialSmoothing(serie, trend='add', damped_trend=True, seasonal='add', seasonal_periods=12).fit().forecast(pasos)
+            modelo = ExponentialSmoothing(serie, trend='add', damped_trend=True, seasonal='add', seasonal_periods=12).fit()
         except:
-            pred = ExponentialSmoothing(serie, trend='add', damped_trend=True).fit().forecast(pasos)
-        return np.maximum(0, np.round(pred)).astype(int)
+            modelo = ExponentialSmoothing(serie, trend='add', damped_trend=True).fit()
+        
+        pred = modelo.forecast(pasos)
+        # Error estándar residual para calcular intervalo de confianza del 95%
+        residuos = serie - modelo.fittedvalues
+        sigma = np.std(residuos, ddof=1)
+        margen = 1.96 * sigma * np.sqrt(np.arange(1, pasos + 1) * 0.35 + 0.65)
+        
+        est = np.maximum(0, np.round(pred)).astype(int)
+        lim_inf = np.maximum(0, np.round(pred - margen)).astype(int)
+        lim_sup = np.maximum(0, np.round(pred + margen)).astype(int)
+        return est, lim_inf, lim_sup
 
     fechas_futuras = pd.date_range(start=df_filtrado['Fecha'].max() + pd.DateOffset(months=1), periods=meses_proyeccion, freq='MS')
-    proy_carga = generar_proyeccion(df_filtrado['Carga_Total'].values, meses_proyeccion)
-    proy_prod = generar_proyeccion(df_filtrado['Produccion'].values, meses_proyeccion)
+    proy_carga, carga_inf, carga_sup = generar_proyeccion_con_rango(df_filtrado['Carga_Total'].values, meses_proyeccion)
+    proy_prod, prod_inf, prod_sup = generar_proyeccion_con_rango(df_filtrado['Produccion'].values, meses_proyeccion)
 
     col_izq, col_der = st.columns(2)
     with col_izq:
         st.subheader("📈 Proyección de Carga Total Activa")
         fig_carga = go.Figure()
+        # Banda sombreada del rango esperado (95% confianza)
+        x_banda = list(fechas_futuras) + list(fechas_futuras)[::-1]
+        y_banda_carga = list(carga_sup) + list(carga_inf)[::-1]
+        fig_carga.add_trace(go.Scatter(x=x_banda, y=y_banda_carga, fill='toself', fillcolor='rgba(245, 158, 11, 0.18)', line=dict(color='rgba(255,255,255,0)'), name='Rango Esperado (95%)', hoverinfo='skip'))
         fig_carga.add_trace(go.Scatter(x=df_filtrado['Fecha'], y=df_filtrado['Carga_Total'], mode='lines+markers', name='Carga Total Real', line=dict(color='#38bdf8', width=3)))
-        fig_carga.add_trace(go.Scatter(x=[df_filtrado['Fecha'].iloc[-1]] + list(fechas_futuras), y=[df_filtrado['Carga_Total'].iloc[-1]] + list(proy_carga), mode='lines+markers', name='Proyección Estimada', line=dict(color='#f59e0b', width=3, dash='dash')))
+        fig_carga.add_trace(go.Scatter(x=[df_filtrado['Fecha'].iloc[-1]] + list(fechas_futuras), y=[df_filtrado['Carga_Total'].iloc[-1]] + list(proy_carga), mode='lines+markers', name='Proyección Central', line=dict(color='#f59e0b', width=3, dash='dash')))
         fig_carga.update_layout(height=360, **layout_movil)
         st.plotly_chart(fig_carga, use_container_width=True, config=config_plotly, key="graf_carga")
 
@@ -106,14 +120,23 @@ with tab1:
 
     st.subheader("⚖️ Histórico y Proyección de Producción de Resoluciones")
     fig_prod = go.Figure()
+    y_banda_prod = list(prod_sup) + list(prod_inf)[::-1]
+    fig_prod.add_trace(go.Scatter(x=x_banda, y=y_banda_prod, fill='toself', fillcolor='rgba(244, 63, 94, 0.16)', line=dict(color='rgba(255,255,255,0)'), name='Rango Esperado (95%)', hoverinfo='skip'))
     fig_prod.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Produccion'], name='Resoluciones Emitidas (Real)', marker_color='#10b981'))
-    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Estimada', line=dict(color='#f43f5e', width=3, dash='dot')))
+    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Central', line=dict(color='#f43f5e', width=3, dash='dot')))
     fig_prod.update_layout(height=340, **layout_movil)
     st.plotly_chart(fig_prod, use_container_width=True, config=config_plotly, key="graf_prod")
 
-    st.subheader("📋 Tabla de Estimaciones Mensuales")
-    df_tabla_proy = pd.DataFrame({'Mes Proyectado': fechas_futuras.strftime('%Y-%m'), 'Carga Total Estimada': proy_carga, 'Producción Estimada (Resoluciones)': proy_prod})
+    st.subheader("📋 Tabla de Estimaciones Mensuales e Intervalos de Confianza (95%)")
+    df_tabla_proy = pd.DataFrame({
+        'Mes Proyectado': [formato_fecha_es(f, corto=False) for f in fechas_futuras],
+        'Carga Estimada (Central)': [f"{x:,}" for x in proy_carga],
+        'Rango Carga Esperada (95%)': [f"{inf:,}  —  {sup:,}" for inf, sup in zip(carga_inf, carga_sup)],
+        'Producción Estimada (Central)': [f"{x:,}" for x in proy_prod],
+        'Rango Producción Esperada (95%)': [f"{inf:,}  —  {sup:,}" for inf, sup in zip(prod_inf, prod_sup)]
+    })
     st.dataframe(df_tabla_proy, use_container_width=True, hide_index=True)
+
 
     st.info("ℹ️ **Técnica Estadística de Proyección:** Se utiliza el modelo de series de tiempo **Suavizamiento Exponencial de Holt-Winters con Tendencia Amortiguada** (ciclo estacional de 12 meses). Esta metodología analiza el historial mensual desde enero de 2023 otorgando mayor peso al desempeño reciente de cada sede e incorporando las variaciones habituales de cada época del año (como periodos vacacionales o cierres anuales) para estimar el escenario esperado manteniendo las condiciones operativas actuales.")
 with tab2:
