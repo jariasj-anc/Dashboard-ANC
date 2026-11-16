@@ -38,28 +38,38 @@ def construir_pdf_completo(
     pdf.set_xy(10, 35)
     pdf.cell(0, 6, txt_latin(f"1. Situación Actual al Cierre de {txt_ult_largo}"), ln=True)
 
+    diff_tot = int(ultimo_mes['Carga_Total'] - df_filtrado.iloc[-2]['Carga_Total'])
+    diff_tra = int(ultimo_mes['Tramite'] - df_filtrado.iloc[-2]['Tramite'])
+    diff_imp = int(ultimo_mes['Impugnacion'] - df_filtrado.iloc[-2]['Impugnacion'])
+    mes_ant_txt = formato_fecha_es(df_filtrado.iloc[-2]['Fecha'], corto=True)
+    mes_act_corto = formato_fecha_es(ultimo_mes['Fecha'], corto=True).split()[0]
+
     kpis_p1 = [
-        ("Carga Total Activa", f"{int(ultimo_mes['Carga_Total']):,} exp."),
-        (f"En Trámite ({pct_tramite:.1f}%)", f"{int(ultimo_mes['Tramite']):,} exp."),
-        (f"Por Impugnar ({pct_impug:.1f}%)", f"{int(ultimo_mes['Impugnacion']):,} exp."),
-        (f"Prod. Acum. ({anio_actual})", f"{prod_acum_actual:,} prod.")
+        ("Carga Total Activa", f"{int(ultimo_mes['Carga_Total']):,} exp.", f"{diff_tot:+,} vs {mes_ant_txt}", diff_tot <= 0),
+        (f"En Trámite ({pct_tramite:.1f}%)", f"{int(ultimo_mes['Tramite']):,} exp.", f"{diff_tra:+,} vs {mes_ant_txt}", diff_tra <= 0),
+        (f"Por Impugnar ({pct_impug:.1f}%)", f"{int(ultimo_mes['Impugnacion']):,} exp.", f"{diff_imp:+,} vs {mes_ant_txt}", diff_imp <= 0),
+        (f"Prod. Acum. ({anio_actual})", f"{prod_acum_actual:,} prod.", f"{mes_act_corto}: {int(ultimo_mes['Produccion']):,}", True)
     ]
-    for idx, (titulo_k, val_k) in enumerate(kpis_p1):
+    for idx, (titulo_k, val_k, sub_k, es_verde) in enumerate(kpis_p1):
         x_k = 10 + idx * 48
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(203, 213, 225)
-        pdf.rect(x_k, 43, 45.5, 16, style="DF")
-        pdf.set_xy(x_k + 2, 45)
-        pdf.set_font("Helvetica", "", 8)
+        pdf.rect(x_k, 43, 45.5, 19, style="DF")
+        pdf.set_xy(x_k + 2, 44.5)
+        pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(100, 116, 139)
         pdf.cell(41, 4, txt_latin(titulo_k), ln=True)
         pdf.set_x(x_k + 2)
         pdf.set_font("Helvetica", "B", 10.5)
         pdf.set_text_color(15, 23, 42)
-        pdf.cell(41, 6, txt_latin(val_k), ln=True)
+        pdf.cell(41, 5.5, txt_latin(val_k), ln=True)
+        pdf.set_x(x_k + 2)
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(22, 163, 74) if es_verde else pdf.set_text_color(220, 38, 38)
+        pdf.cell(41, 4, txt_latin(sub_k), ln=True)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5), dpi=180)
+        fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.4), dpi=180)
         fig1.patch.set_facecolor("white")
 
         ax1.plot(df_filtrado['Fecha'], df_filtrado['Carga_Total'], color="#0284c7", linewidth=2, label="Real")
@@ -86,9 +96,9 @@ def construir_pdf_completo(
         ruta_img1 = os.path.join(tmpdir, "graf_p1.png")
         plt.savefig(ruta_img1, facecolor="white")
         plt.close(fig1)
-        pdf.image(ruta_img1, x=10, y=63, w=190)
+        pdf.image(ruta_img1, x=10, y=65, w=190)
 
-        pdf.set_xy(10, 133)
+        pdf.set_xy(10, 134)
         pdf.set_font("Helvetica", "B", 10.5)
         pdf.set_text_color(30, 41, 59)
         pdf.cell(0, 6, txt_latin(f"2. Proyecciones Mensuales e Intervalos al 95% (Precisión Carga: {prec_carga:.1f}% | Prod: {prec_prod:.1f}%)"), ln=True)
@@ -125,28 +135,36 @@ def construir_pdf_completo(
         pdf.set_xy(13, 14)
         pdf.cell(0, 6, txt_latin(f"3. Estadísticas Históricas ({anio_sel}) - {sede_seleccionada}"), ln=True)
 
+        prom_c_p2 = df_desc['Carga_Total'].mean()
+        pct_tr_p2 = (df_desc['Tramite'].mean() / prom_c_p2 * 100) if prom_c_p2 > 0 else 0
+        pct_im_p2 = (df_desc['Impugnacion'].mean() / prom_c_p2 * 100) if prom_c_p2 > 0 else 0
+
         kpis_p2 = [
-            (f"Cierre ({formato_fecha_es(fecha_corte_rank, corto=True)})", f"{int(fila_cierre['Carga_Total']):,}"),
-            ("Prom. Carga", f"{df_desc['Carga_Total'].mean():,.0f}"),
-            ("Prom. Trámite", f"{df_desc['Tramite'].mean():,.0f}"),
-            ("Prom. Impugnar", f"{df_desc['Impugnacion'].mean():,.0f}"),
-            ("Prod. Total", f"{int(df_desc['Produccion'].sum()):,}")
+            (f"Cierre ({formato_fecha_es(fecha_corte_rank, corto=True)})", f"{int(fila_cierre['Carga_Total']):,}", f"Trám: {int(fila_cierre['Tramite']):,} | Imp: {int(fila_cierre['Impugnacion']):,}", True),
+            ("Prom. Carga", f"{prom_c_p2:,.0f}", "Promedio mensual", True),
+            ("Prom. Trámite", f"{df_desc['Tramite'].mean():,.0f}", f"{pct_tr_p2:.1f}% de la carga", True),
+            ("Prom. Impugnar", f"{df_desc['Impugnacion'].mean():,.0f}", f"{pct_im_p2:.1f}% de la carga", False),
+            ("Prod. Total", f"{int(df_desc['Produccion'].sum()):,}", f"Prom: {df_desc['Produccion'].mean():,.0f}/mes", True)
         ]
-        for idx, (tk2, vk2) in enumerate(kpis_p2):
+        for idx, (tk2, vk2, sub2, verde2) in enumerate(kpis_p2):
             xk2 = 10 + idx * 38.4
             pdf.set_fill_color(248, 250, 252)
             pdf.set_draw_color(203, 213, 225)
-            pdf.rect(xk2, 27, 36.4, 15, style="DF")
-            pdf.set_xy(xk2 + 1.5, 28.5)
-            pdf.set_font("Helvetica", "", 7.5)
+            pdf.rect(xk2, 27, 36.4, 18, style="DF")
+            pdf.set_xy(xk2 + 1.5, 28)
+            pdf.set_font("Helvetica", "", 7.2)
             pdf.set_text_color(100, 116, 139)
-            pdf.cell(33, 4, txt_latin(tk2), ln=True)
+            pdf.cell(33, 3.8, txt_latin(tk2), ln=True)
             pdf.set_x(xk2 + 1.5)
             pdf.set_font("Helvetica", "B", 9.5)
             pdf.set_text_color(15, 23, 42)
-            pdf.cell(33, 5.5, txt_latin(vk2), ln=True)
+            pdf.cell(33, 5, txt_latin(vk2), ln=True)
+            pdf.set_x(xk2 + 1.5)
+            pdf.set_font("Helvetica", "B", 6.8)
+            pdf.set_text_color(22, 163, 74) if verde2 else pdf.set_text_color(220, 38, 38)
+            pdf.cell(33, 3.8, txt_latin(sub2), ln=True)
 
-        pdf.set_xy(10, 46)
+        pdf.set_xy(10, 49)
         pdf.set_text_color(30, 41, 59)
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(0, 6, txt_latin("Resumen Comparativo Anual"), ln=True)
