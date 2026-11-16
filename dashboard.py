@@ -74,58 +74,102 @@ layout_movil = dict(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
 )
 config_plotly = {"displayModeBar": False}
-
 with tab1:
-    def generar_proyeccion_con_rango(serie, pasos):
+    def generar_proyeccion_avanzada(serie, pasos):
         try:
             modelo = ExponentialSmoothing(serie, trend='add', damped_trend=True, seasonal='add', seasonal_periods=12).fit()
         except:
             modelo = ExponentialSmoothing(serie, trend='add', damped_trend=True).fit()
         
         pred = modelo.forecast(pasos)
-        # Error estándar residual para calcular intervalo de confianza del 95%
-        residuos = serie - modelo.fittedvalues
+        ajustados = modelo.fittedvalues
+        residuos = serie - ajustados
         sigma = np.std(residuos, ddof=1)
         margen = 1.96 * sigma * np.sqrt(np.arange(1, pasos + 1) * 0.35 + 0.65)
+        
+        mask = serie > 0
+        mape = np.mean(np.abs((serie[mask] - ajustados[mask]) / serie[mask])) * 100 if np.any(mask) else 0.0
+        precision = max(0.0, 100.0 - mape)
         
         est = np.maximum(0, np.round(pred)).astype(int)
         lim_inf = np.maximum(0, np.round(pred - margen)).astype(int)
         lim_sup = np.maximum(0, np.round(pred + margen)).astype(int)
-        return est, lim_inf, lim_sup
+        return est, lim_inf, lim_sup, precision, mape
 
     fechas_futuras = pd.date_range(start=df_filtrado['Fecha'].max() + pd.DateOffset(months=1), periods=meses_proyeccion, freq='MS')
-    proy_carga, carga_inf, carga_sup = generar_proyeccion_con_rango(df_filtrado['Carga_Total'].values, meses_proyeccion)
-    proy_prod, prod_inf, prod_sup = generar_proyeccion_con_rango(df_filtrado['Produccion'].values, meses_proyeccion)
+    proy_carga, carga_inf, carga_sup, prec_carga, mape_carga = generar_proyeccion_avanzada(df_filtrado['Carga_Total'].values, meses_proyeccion)
+    proy_prod, prod_inf, prod_sup, prec_prod, mape_prod = generar_proyeccion_avanzada(df_filtrado['Produccion'].values, meses_proyeccion)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Precisión Modelo — Carga Activa", f"{prec_carga:.1f}%", f"Margen error medio: {mape_carga:.1f}%", border=True)
+    var_proy_fin = proy_carga[-1] - int(ultimo_mes['Carga_Total'])
+    m2.metric(f"Carga Activa Est. ({formato_fecha_es(fechas_futuras[-1], corto=True)})", f"{proy_carga[-1]:,} exp.", f"{var_proy_fin:+,} exp. vs hoy", delta_color="inverse", border=True)
+    
+    m3.metric("Precisión Modelo — Producción", f"{prec_prod:.1f}%", f"Margen error medio: {mape_prod:.1f}%", border=True)
+    total_proy_prod = int(np.sum(proy_prod))
+    prom_proy_prod = np.mean(proy_prod)
+    m4.metric(f"Producción Est. ({meses_proyeccion} meses)", f"{total_proy_prod:,} prod.", f"Prom: {prom_proy_prod:,.0f} prod./mes", border=True)
+
+    estilo_hover = dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b")
+    fechas_hist_es = [formato_fecha_es(f, corto=False) for f in df_filtrado['Fecha']]
+    fechas_fut_es = [formato_fecha_es(f, corto=False) for f in fechas_futuras]
 
     col_izq, col_der = st.columns(2)
     with col_izq:
         st.subheader("📈 Proyección de Carga Total Activa")
         fig_carga = go.Figure()
-        # Banda sombreada del rango esperado (95% confianza)
         x_banda = list(fechas_futuras) + list(fechas_futuras)[::-1]
         y_banda_carga = list(carga_sup) + list(carga_inf)[::-1]
         fig_carga.add_trace(go.Scatter(x=x_banda, y=y_banda_carga, fill='toself', fillcolor='rgba(245, 158, 11, 0.18)', line=dict(color='rgba(255,255,255,0)'), name='Rango Esperado (95%)', hoverinfo='skip'))
-        fig_carga.add_trace(go.Scatter(x=df_filtrado['Fecha'], y=df_filtrado['Carga_Total'], mode='lines+markers', name='Carga Total Real', line=dict(color='#38bdf8', width=3)))
-        fig_carga.add_trace(go.Scatter(x=[df_filtrado['Fecha'].iloc[-1]] + list(fechas_futuras), y=[df_filtrado['Carga_Total'].iloc[-1]] + list(proy_carga), mode='lines+markers', name='Proyección Central', line=dict(color='#f59e0b', width=3, dash='dash')))
+        
+        hover_carga_real = [f"<b>{f_es}</b><br>🔵 Carga Total Real: <b>{int(c):,}</b>" for f_es, c in zip(fechas_hist_es, df_filtrado['Carga_Total'])]
+        fig_carga.add_trace(go.Scatter(x=df_filtrado['Fecha'], y=df_filtrado['Carga_Total'], mode='lines+markers', name='Carga Total Real', line=dict(color='#38bdf8', width=3), hovertext=hover_carga_real, hovertemplate="%{hovertext}<extra></extra>"))
+        
+        hover_carga_proy = [f"<b>{fechas_hist_es[-1]} (Cierre Real)</b><br>🔵 Carga Total: <b>{int(df_filtrado['Carga_Total'].iloc[-1]):,}</b>"] + [
+            f"<b>{f_es} (Proyectado)</b><br>🟡 Proyección Central: <b>{c:,}</b><br>📐 Rango (95%): <b>{inf:,} — {sup:,}</b>"
+            for f_es, c, inf, sup in zip(fechas_fut_es, proy_carga, carga_inf, carga_sup)
+        ]
+        fig_carga.add_trace(go.Scatter(x=[df_filtrado['Fecha'].iloc[-1]] + list(fechas_futuras), y=[df_filtrado['Carga_Total'].iloc[-1]] + list(proy_carga), mode='lines+markers', name='Proyección Central', line=dict(color='#f59e0b', width=3, dash='dash'), hovertext=hover_carga_proy, hovertemplate="%{hovertext}<extra></extra>"))
         fig_carga.update_layout(height=360, **layout_movil)
+        fig_carga.update_layout(hovermode="closest", hoverlabel=estilo_hover)
         st.plotly_chart(fig_carga, use_container_width=True, config=config_plotly, key="graf_carga")
 
     with col_der:
         st.subheader("📊 Composición de la Carga (Trámite vs Impugnación)")
+        hover_comp = []
+        for f_es, t, i, tot in zip(fechas_hist_es, df_filtrado['Tramite'], df_filtrado['Impugnacion'], df_filtrado['Carga_Total']):
+            pt = (t / tot * 100) if tot > 0 else 0
+            pi = (i / tot * 100) if tot > 0 else 0
+            hover_comp.append(
+                f"<b>{f_es}</b><br>"
+                f"🔵 En Trámite: <b>{int(t):,} ({pt:.1f}%)</b><br>"
+                f"🟠 Resuelto por Impugnar: <b>{int(i):,} ({pi:.1f}%)</b><br>"
+                f"📊 Carga Total Activa: <b>{int(tot):,}</b>"
+            )
         fig_comp = go.Figure()
-        fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Tramite'], name='En Trámite', marker_color='#0284c7'))
-        fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Impugnacion'], name='Resuelto por Impugnar', marker_color='#f97316'))
+        fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Tramite'], name='En Trámite', marker_color='#0284c7', hovertext=hover_comp, hovertemplate="%{hovertext}<extra></extra>"))
+        fig_comp.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Impugnacion'], name='Resuelto por Impugnar', marker_color='#f97316', hovertext=hover_comp, hovertemplate="%{hovertext}<extra></extra>"))
         fig_comp.update_layout(barmode='stack', height=360, **layout_movil)
+        fig_comp.update_layout(hovermode="closest", hoverlabel=estilo_hover)
         st.plotly_chart(fig_comp, use_container_width=True, config=config_plotly, key="graf_comp")
 
-    st.subheader("⚖️ Histórico y Proyección de Producción de Resoluciones")
+    st.subheader("⚖️ Histórico y Proyección de Producción")
     fig_prod = go.Figure()
     y_banda_prod = list(prod_sup) + list(prod_inf)[::-1]
     fig_prod.add_trace(go.Scatter(x=x_banda, y=y_banda_prod, fill='toself', fillcolor='rgba(244, 63, 94, 0.16)', line=dict(color='rgba(255,255,255,0)'), name='Rango Esperado (95%)', hoverinfo='skip'))
-    fig_prod.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Produccion'], name='Resoluciones Emitidas (Real)', marker_color='#10b981'))
-    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Central', line=dict(color='#f43f5e', width=3, dash='dot')))
+    
+    hover_prod_real = [f"<b>{f_es}</b><br>🟢 Producción (Real): <b>{int(p):,}</b>" for f_es, p in zip(fechas_hist_es, df_filtrado['Produccion'])]
+    fig_prod.add_trace(go.Bar(x=df_filtrado['Fecha'], y=df_filtrado['Produccion'], name='Producción (Real)', marker_color='#10b981', hovertext=hover_prod_real, hovertemplate="%{hovertext}<extra></extra>"))
+    
+    hover_prod_proy = [
+        f"<b>{f_es} (Proyectado)</b><br>🔴 Proyección Central: <b>{p:,}</b><br>📐 Rango (95%): <b>{inf:,} — {sup:,}</b>"
+        for f_es, p, inf, sup in zip(fechas_fut_es, proy_prod, prod_inf, prod_sup)
+    ]
+    fig_prod.add_trace(go.Scatter(x=fechas_futuras, y=proy_prod, mode='lines+markers', name='Proyección Central', line=dict(color='#f43f5e', width=3, dash='dot'), hovertext=hover_prod_proy, hovertemplate="%{hovertext}<extra></extra>"))
     fig_prod.update_layout(height=340, **layout_movil)
+    fig_prod.update_layout(hovermode="closest", hoverlabel=estilo_hover)
     st.plotly_chart(fig_prod, use_container_width=True, config=config_plotly, key="graf_prod")
+
 
     st.subheader("📋 Tabla de Estimaciones Mensuales e Intervalos de Confianza (95%)")
     df_tabla_proy = pd.DataFrame({
@@ -137,8 +181,7 @@ with tab1:
     })
     st.dataframe(df_tabla_proy, use_container_width=True, hide_index=True)
 
-
-    st.info("ℹ️ **Técnica Estadística de Proyección:** Se utiliza el modelo de series de tiempo **Suavizamiento Exponencial de Holt-Winters con Tendencia Amortiguada** (ciclo estacional de 12 meses). Esta metodología analiza el historial mensual desde enero de 2023 otorgando mayor peso al desempeño reciente de cada sede e incorporando las variaciones habituales de cada época del año (como periodos vacacionales o cierres anuales) para estimar el escenario esperado manteniendo las condiciones operativas actuales.")
+    st.info("ℹ️ **Técnica Estadística de Proyección:** Se utiliza el modelo de series de tiempo **Suavizamiento Exponencial de Holt-Winters con Tendencia Amortiguada** (ciclo estacional de 12 meses), complementado con intervalos de confianza al 95% y evaluación de ajuste histórico para estimar el escenario esperado manteniendo las condiciones operativas actuales.")
 with tab2:
     col_titulo, col_filtro = st.columns(2)
     anio_min, anio_max = int(df['Anio'].min()), int(df['Anio'].max())
@@ -174,13 +217,13 @@ with tab2:
         st.subheader(f"📆 Evolución Mensual Detallada — Año {anio_sel}")
         fechas_es_mes = [formato_fecha_es(f, corto=False) for f in df_desc['Fecha']]
         texto_hover_mes = [
-            f"<b>{f_es}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,}</b><br>🟢 Producción (Resoluciones): <b>{p:,}</b>"
+            f"<b>{f_es}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,}</b><br>🟢 Producción: <b>{p:,}</b>"
             for f_es, t, i, tot, p in zip(fechas_es_mes, df_desc['Tramite'], df_desc['Impugnacion'], df_desc['Carga_Total'], df_desc['Produccion'])
         ]
         fig_mes = go.Figure()
         fig_mes.add_trace(go.Bar(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Tramite'], name='En Trámite', marker_color='#0284c7', hovertext=texto_hover_mes, hovertemplate="%{hovertext}<extra></extra>"))
         fig_mes.add_trace(go.Bar(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Impugnacion'], name='Resuelto por Impugnar', marker_color='#f97316', hovertext=texto_hover_mes, hovertemplate="%{hovertext}<extra></extra>"))
-        fig_mes.add_trace(go.Scatter(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Produccion'], mode='lines+markers', name='Producción (Resoluciones)', line=dict(color='#10b981', width=3), hovertext=texto_hover_mes, hovertemplate="%{hovertext}<extra></extra>"))
+        fig_mes.add_trace(go.Scatter(x=df_desc['Fecha'].dt.strftime('%Y-%m'), y=df_desc['Produccion'], mode='lines+markers', name='Producción', line=dict(color='#10b981', width=3), hovertext=texto_hover_mes, hovertemplate="%{hovertext}<extra></extra>"))
         fig_mes.update_layout(barmode='stack', height=380, **layout_movil)
         fig_mes.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
         st.plotly_chart(fig_mes, use_container_width=True, config=config_plotly, key="graf_mensual")
@@ -190,11 +233,11 @@ with tab2:
     resumen_anual['Anio'] = resumen_anual['Anio'].astype(str)
     for col in ['Carga_Cierre', 'Prom_Carga', 'Prom_Tramite', 'Prom_Impug', 'Prom_Prod', 'Total_Prod']:
         resumen_anual[col] = resumen_anual[col].round(0).astype(int)
-    resumen_anual.columns = ['Año', 'Meses', 'Carga al Cierre', 'Prom. Carga Total', 'Prom. En Trámite', 'Prom. Por Impugnar', 'Prom. Producción/Mes', 'Total Resoluciones Emitidas']
+    resumen_anual.columns = ['Año', 'Meses', 'Carga al Cierre', 'Prom. Carga Total', 'Prom. En Trámite', 'Prom. Por Impugnar', 'Prom. Producción/Mes', 'Total Producción']
     st.dataframe(resumen_anual, use_container_width=True, hide_index=True)
 
     st.subheader(f"📐 Indicadores Estadísticos de Dispersión y Posición ({anio_sel})")
-    variables_est = [('Carga_Total', 'Carga Total Activa'), ('Tramite', 'Expedientes En Trámite'), ('Impugnacion', 'Resuelto por Impugnar'), ('Produccion', 'Producción (Resoluciones)')]
+    variables_est = [('Carga_Total', 'Carga Total Activa'), ('Tramite', 'Expedientes En Trámite'), ('Impugnacion', 'Resuelto por Impugnar'), ('Produccion', 'Producción')]
     filas_est = []
     stats_dict = {}
     for col_var, nombre_var in variables_est:
@@ -216,7 +259,7 @@ with tab2:
         "**> 35% (Fluctuación Alta):** Ritmo irregular con picos fuertes y meses bajos."
     )
 
-    carga_ini = int(df_desc['Carga_Total'].values[0])
+    carga_ini = int(next(iter(df_desc['Carga_Total'])))
     carga_fin = int(fila_cierre['Carga_Total'])
     var_carga = carga_fin - carga_ini
     pct_var_carga = (var_carga / carga_ini * 100) if carga_ini > 0 else 0.0
@@ -250,10 +293,9 @@ with tab2:
     st.success(
         f"🔍 **Hallazgos Clave — {sede_seleccionada} ({anio_sel}):**\n\n"
         f"* **Evolución de la Carga Activa:** Entre el inicio y el cierre del periodo evaluado, la carga total registró {texto_tendencia}, cerrando en **{carga_fin:,} expedientes activos**. Sobre un promedio de **{media_carga:,.0f} expedientes**, lo habitual es que cada mes se mantenga entre **{rango_carga_inf:,} y {rango_carga_sup:,} expedientes**; {frase_cv_carga}.\n"
-        f"* **Regularidad de la Producción:** Sobre un promedio de **{media_prod:,.0f} resoluciones por mes**, lo habitual es emitir entre **{rango_prod_inf:,} y {rango_prod_sup:,} resoluciones mensuales**; {frase_cv_prod}. Su rendimiento típico es de **{stats_dict['Produccion']['mediana']:,.0f} resoluciones por mes**, alcanzando su mayor nivel en **{stats_dict['Produccion']['max']}** y el más bajo en **{stats_dict['Produccion']['min']}**.\n"
+        f"* **Regularidad de la Producción:** Sobre un promedio de **{media_prod:,.0f} prod. por mes**, lo habitual es registrar entre **{rango_prod_inf:,} y {rango_prod_sup:,} prod. mensuales**; {frase_cv_prod}. Su rendimiento típico es de **{stats_dict['Produccion']['mediana']:,.0f} prod. por mes**, alcanzando su mayor nivel en **{stats_dict['Produccion']['max']}** y el más bajo en **{stats_dict['Produccion']['min']}**.\n"
         f"* **Composición al Cierre ({formato_fecha_es(fecha_corte_rank, corto=True)}):** Del inventario activo final, el **{pct_tram_cierre:.1f}%** corresponde a expedientes **En Trámite** y el **{pct_imp_cierre:.1f}%** a expedientes **Resueltos por Impugnar**."
     )
-
 
     st.markdown("---")
     st.subheader(f"🏆 Ranking 1: Carga Activa a Nivel Nacional (Cierre: {texto_corte})")
@@ -265,13 +307,7 @@ with tab2:
     colores_imp = ['#fbbf24' if s == sede_seleccionada else '#f97316' for s in df_ranking['Sede']]
 
     fig_rank = go.Figure()
-    texto_hover = [
-        f"<b>{s}</b><br>"
-        f"🔵 En Trámite: <b>{t:,}</b><br>"
-        f"🟠 Resuelto por Impugnar: <b>{i:,}</b><br>"
-        f"📊 Carga Total Activa: <b>{tot:,} ({pct:.1f}% nacional)</b>"
-        for s, t, i, tot, pct in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'], df_ranking['Pct_Nac'])
-    ]
+    texto_hover = [f"<b>{s}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,} ({pct:.1f}% nacional)</b>" for s, t, i, tot, pct in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'], df_ranking['Pct_Nac'])]
     etiquetas_barra_carga = [f"  {tot:,} ({pct:.1f}%)" for tot, pct in zip(df_ranking['Carga_Total'], df_ranking['Pct_Nac'])]
 
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color=colores_tram, hovertext=texto_hover, hovertemplate="%{hovertext}<extra></extra>"))
@@ -288,12 +324,7 @@ with tab2:
     df_rank_prod['Pct_Nac'] = (df_rank_prod['Produccion'] / total_nac_prod * 100) if total_nac_prod > 0 else 0.0
     colores_prod = ['#f59e0b' if s == sede_seleccionada else '#10b981' for s in df_rank_prod['Sede']]
 
-    texto_hover_prod = [
-        f"<b>{s}</b><br>"
-        f"🟢 Resoluciones Emitidas: <b>{p:,}</b><br>"
-        f"📈 Participación Nacional: <b>{pct:.1f}%</b>"
-        for s, p, pct in zip(df_rank_prod['Sede'], df_rank_prod['Produccion'], df_rank_prod['Pct_Nac'])
-    ]
+    texto_hover_prod = [f"<b>{s}</b><br>🟢 Producción: <b>{p:,}</b><br>📈 Participación Nacional: <b>{pct:.1f}%</b>" for s, p, pct in zip(df_rank_prod['Sede'], df_rank_prod['Produccion'], df_rank_prod['Pct_Nac'])]
 
     fig_prod_rank = go.Figure()
     fig_prod_rank.add_trace(go.Bar(
@@ -302,10 +333,13 @@ with tab2:
         text=df_rank_prod['Produccion'].apply(lambda x: f"{x:,}"),
         textposition='outside',
         marker_color=colores_prod,
-        name='Resoluciones Emitidas',
+        name='Producción',
         hovertext=texto_hover_prod,
         hovertemplate="%{hovertext}<extra></extra>"
     ))
-    fig_prod_rank.update_layout(height=460, yaxis_title="Total Resoluciones", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
+    fig_prod_rank.update_layout(height=460, yaxis_title="Total Producción", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
     fig_prod_rank.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
     st.plotly_chart(fig_prod_rank, use_container_width=True, config=config_plotly, key="graf_rank_prod")
+
+
+
