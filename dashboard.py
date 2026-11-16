@@ -235,22 +235,42 @@ with tab2:
     st.markdown("---")
     st.subheader(f"🏆 Ranking 1: Carga Activa a Nivel Nacional (Cierre: {texto_corte})")
     df_ranking = df[df['Fecha'] == fecha_corte_rank].sort_values('Carga_Total', ascending=True)
+    total_nac_carga = df_ranking['Carga_Total'].sum()
+    df_ranking['Pct_Nac'] = (df_ranking['Carga_Total'] / total_nac_carga * 100) if total_nac_carga > 0 else 0.0
+
     colores_tram = ['#f59e0b' if s == sede_seleccionada else '#0284c7' for s in df_ranking['Sede']]
     colores_imp = ['#fbbf24' if s == sede_seleccionada else '#f97316' for s in df_ranking['Sede']]
 
     fig_rank = go.Figure()
-    texto_hover = [f"<b>{s}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,}</b>" for s, t, i, tot in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'])]
+    texto_hover = [
+        f"<b>{s}</b><br>"
+        f"🔵 En Trámite: <b>{t:,}</b><br>"
+        f"🟠 Resuelto por Impugnar: <b>{i:,}</b><br>"
+        f"📊 Carga Total Activa: <b>{tot:,} ({pct:.1f}% nacional)</b>"
+        for s, t, i, tot, pct in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'], df_ranking['Pct_Nac'])
+    ]
+    etiquetas_barra_carga = [f"  {tot:,} ({pct:.1f}%)" for tot, pct in zip(df_ranking['Carga_Total'], df_ranking['Pct_Nac'])]
+
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color=colores_tram, hovertext=texto_hover, hovertemplate="%{hovertext}<extra></extra>"))
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color=colores_imp, hovertext=texto_hover, hovertemplate="%{hovertext}<extra></extra>"))
-    fig_rank.add_trace(go.Scatter(y=df_ranking['Sede'], x=df_ranking['Carga_Total'], text=df_ranking['Carga_Total'].apply(lambda x: f"  {x:,}"), mode='text', textposition='middle right', showlegend=False, hoverinfo='skip'))
-    fig_rank.update_layout(barmode='stack', height=680, xaxis_title="Cantidad de Expedientes", xaxis_range=[0, df_ranking['Carga_Total'].max() * 1.12], **layout_movil)
+    fig_rank.add_trace(go.Scatter(y=df_ranking['Sede'], x=df_ranking['Carga_Total'], text=etiquetas_barra_carga, mode='text', textposition='middle right', showlegend=False, hoverinfo='skip'))
+    fig_rank.update_layout(barmode='stack', height=720, xaxis_title="Cantidad de Expedientes", xaxis_range=[0, df_ranking['Carga_Total'].max() * 1.18], **layout_movil)
     fig_rank.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
     st.plotly_chart(fig_rank, use_container_width=True, config=config_plotly, key="graf_rank_carga")
 
     st.markdown("---")
     st.subheader(f"⚖️ Ranking 2: Producción Global a Nivel Nacional ({anio_sel})")
     df_rank_prod = df_sedes_periodo.groupby('Sede')['Produccion'].sum().reset_index().sort_values('Produccion', ascending=False)
+    total_nac_prod = df_rank_prod['Produccion'].sum()
+    df_rank_prod['Pct_Nac'] = (df_rank_prod['Produccion'] / total_nac_prod * 100) if total_nac_prod > 0 else 0.0
     colores_prod = ['#f59e0b' if s == sede_seleccionada else '#10b981' for s in df_rank_prod['Sede']]
+
+    texto_hover_prod = [
+        f"<b>{s}</b><br>"
+        f"🟢 Resoluciones Emitidas: <b>{p:,}</b><br>"
+        f"📈 Participación Nacional: <b>{pct:.1f}%</b>"
+        for s, p, pct in zip(df_rank_prod['Sede'], df_rank_prod['Produccion'], df_rank_prod['Pct_Nac'])
+    ]
 
     fig_prod_rank = go.Figure()
     fig_prod_rank.add_trace(go.Bar(
@@ -259,12 +279,10 @@ with tab2:
         text=df_rank_prod['Produccion'].apply(lambda x: f"{x:,}"),
         textposition='outside',
         marker_color=colores_prod,
-        name='Resoluciones Emitidas'
+        name='Resoluciones Emitidas',
+        hovertext=texto_hover_prod,
+        hovertemplate="%{hovertext}<extra></extra>"
     ))
-    fig_prod_rank.update_layout(height=450, yaxis_title="Total Resoluciones", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
+    fig_prod_rank.update_layout(height=460, yaxis_title="Total Resoluciones", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
+    fig_prod_rank.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
     st.plotly_chart(fig_prod_rank, use_container_width=True, config=config_plotly, key="graf_rank_prod")
-
-
-
-
-
