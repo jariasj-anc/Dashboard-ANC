@@ -151,11 +151,7 @@ with tab2:
         st.subheader(f"📆 Evolución Mensual Detallada — Año {anio_sel}")
         fechas_es_mes = [formato_fecha_es(f, corto=False) for f in df_desc['Fecha']]
         texto_hover_mes = [
-            f"<b>{f_es}</b><br>"
-            f"🔵 En Trámite: <b>{t:,}</b><br>"
-            f"🟠 Resuelto por Impugnar: <b>{i:,}</b><br>"
-            f"📊 Carga Total Activa: <b>{tot:,}</b><br>"
-            f"🟢 Producción (Resoluciones): <b>{p:,}</b>"
+            f"<b>{f_es}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,}</b><br>🟢 Producción (Resoluciones): <b>{p:,}</b>"
             for f_es, t, i, tot, p in zip(fechas_es_mes, df_desc['Tramite'], df_desc['Impugnacion'], df_desc['Carga_Total'], df_desc['Produccion'])
         ]
         fig_mes = go.Figure()
@@ -167,20 +163,74 @@ with tab2:
         st.plotly_chart(fig_mes, use_container_width=True, config=config_plotly, key="graf_mensual")
 
     st.subheader("📅 Resumen Comparativo Anual")
-    resumen_anual = df_filtrado.groupby('Anio').agg(
-        Meses=('Fecha', 'count'),
-        Carga_Cierre=('Carga_Total', 'last'),
-        Prom_Carga=('Carga_Total', 'mean'),
-        Prom_Tramite=('Tramite', 'mean'),
-        Prom_Impug=('Impugnacion', 'mean'),
-        Prom_Prod=('Produccion', 'mean'),
-        Total_Prod=('Produccion', 'sum')
-    ).reset_index()
+    resumen_anual = df_filtrado.groupby('Anio').agg(Meses=('Fecha', 'count'), Carga_Cierre=('Carga_Total', 'last'), Prom_Carga=('Carga_Total', 'mean'), Prom_Tramite=('Tramite', 'mean'), Prom_Impug=('Impugnacion', 'mean'), Prom_Prod=('Produccion', 'mean'), Total_Prod=('Produccion', 'sum')).reset_index()
     resumen_anual['Anio'] = resumen_anual['Anio'].astype(str)
     for col in ['Carga_Cierre', 'Prom_Carga', 'Prom_Tramite', 'Prom_Impug', 'Prom_Prod', 'Total_Prod']:
         resumen_anual[col] = resumen_anual[col].round(0).astype(int)
     resumen_anual.columns = ['Año', 'Meses', 'Carga al Cierre', 'Prom. Carga Total', 'Prom. En Trámite', 'Prom. Por Impugnar', 'Prom. Producción/Mes', 'Total Resoluciones Emitidas']
     st.dataframe(resumen_anual, use_container_width=True, hide_index=True)
+
+    st.subheader(f"📐 Indicadores Estadísticos de Dispersión y Posición ({anio_sel})")
+    variables_est = [('Carga_Total', 'Carga Total Activa'), ('Tramite', 'Expedientes En Trámite'), ('Impugnacion', 'Resuelto por Impugnar'), ('Produccion', 'Producción (Resoluciones)')]
+    filas_est = []
+    stats_dict = {}
+    for col_var, nombre_var in variables_est:
+        serie = df_desc[col_var]
+        media, mediana = serie.mean(), serie.median()
+        desv = serie.std(ddof=1) if len(serie) > 1 else 0.0
+        cv = (desv / media * 100) if media > 0 else 0.0
+        idx_min, idx_max = serie.idxmin(), serie.idxmax()
+        val_min, val_max = int(serie.loc[idx_min]), int(serie.loc[idx_max])
+        mes_min, mes_max = formato_fecha_es(df_desc.loc[idx_min, 'Fecha'], corto=True), formato_fecha_es(df_desc.loc[idx_max, 'Fecha'], corto=True)
+        stats_dict[col_var] = {'mediana': mediana, 'desv': desv, 'cv': cv, 'min': f"{val_min:,} ({mes_min})", 'max': f"{val_max:,} ({mes_max})"}
+        filas_est.append({'Indicador Evaluado': nombre_var, 'Promedio (Media)': f"{media:,.0f}", 'Mediana (Mes Típico)': f"{mediana:,.0f}", 'Desviación Estándar': f"{desv:,.0f}", 'Coef. Variación (CV)': f"{cv:.1f}%", 'Mínimo Registrado': f"{val_min:,} ({mes_min})", 'Máximo Registrado': f"{val_max:,} ({mes_max})"})
+    st.dataframe(pd.DataFrame(filas_est), use_container_width=True, hide_index=True)
+
+    st.caption(
+        "ℹ️ **Criterio de Lectura del Coeficiente de Variación (CV):** "
+        "**< 20% (Estabilidad Alta):** Ritmo muy parejo y constante sin sobresaltos | "
+        "**20% a 35% (Variabilidad Moderada):** Fluctuaciones normales por el calendario judicial | "
+        "**> 35% (Fluctuación Alta):** Ritmo irregular con picos fuertes y meses bajos."
+    )
+
+    carga_ini = int(df_desc['Carga_Total'].values[0])
+    carga_fin = int(fila_cierre['Carga_Total'])
+    var_carga = carga_fin - carga_ini
+    pct_var_carga = (var_carga / carga_ini * 100) if carga_ini > 0 else 0.0
+    texto_tendencia = f"una **reducción neta de {var_carga:,} expedientes ({pct_var_carga:.1f}%)**" if var_carga < 0 else (f"un **incremento neto de +{var_carga:,} expedientes (+{pct_var_carga:.1f}%)**" if var_carga > 0 else "una **variación neta nula (0%)**")
+
+    media_carga = df_desc['Carga_Total'].mean()
+    desv_carga, cv_carga = stats_dict['Carga_Total']['desv'], stats_dict['Carga_Total']['cv']
+    rango_carga_inf = max(0, int(round(media_carga - desv_carga)))
+    rango_carga_sup = int(round(media_carga + desv_carga))
+    if cv_carga < 20:
+        frase_cv_carga = f"es decir, el volumen apenas varía un **{cv_carga:.1f}% de un mes a otro**, demostrando **una gestión muy estable y sin sobresaltos**"
+    elif cv_carga <= 35:
+        frase_cv_carga = f"es decir, el volumen varía moderadamente en un **{cv_carga:.1f}% de un mes a otro**, reflejando **fluctuaciones normales del movimiento procesal**"
+    else:
+        frase_cv_carga = f"es decir, el volumen varía hasta en un **{cv_carga:.1f}% de un mes a otro**, evidenciando **cambios marcados en el inventario mensual**"
+
+    media_prod = df_desc['Produccion'].mean()
+    desv_prod, cv_prod = stats_dict['Produccion']['desv'], stats_dict['Produccion']['cv']
+    rango_prod_inf = max(0, int(round(media_prod - desv_prod)))
+    rango_prod_sup = int(round(media_prod + desv_prod))
+    if cv_prod < 20:
+        frase_cv_prod = f"es decir, la producción apenas varía un **{cv_prod:.1f}% de un mes a otro**, demostrando **un ritmo muy parejo y constante todo el año**"
+    elif cv_prod <= 35:
+        frase_cv_prod = f"es decir, la producción varía moderadamente en un **{cv_prod:.1f}% de un mes a otro**, mostrando **variaciones normales por el calendario judicial**"
+    else:
+        frase_cv_prod = f"es decir, la producción varía hasta en un **{cv_prod:.1f}% de un mes a otro**, evidenciando **un ritmo irregular con picos fuertes y meses bajos**"
+
+    pct_tram_cierre = (fila_cierre['Tramite'] / carga_fin * 100) if carga_fin > 0 else 0.0
+    pct_imp_cierre = (fila_cierre['Impugnacion'] / carga_fin * 100) if carga_fin > 0 else 0.0
+
+    st.success(
+        f"🔍 **Hallazgos Clave — {sede_seleccionada} ({anio_sel}):**\n\n"
+        f"* **Evolución de la Carga Activa:** Entre el inicio y el cierre del periodo evaluado, la carga total registró {texto_tendencia}, cerrando en **{carga_fin:,} expedientes activos**. Sobre un promedio de **{media_carga:,.0f} expedientes**, lo habitual es que cada mes se mantenga entre **{rango_carga_inf:,} y {rango_carga_sup:,} expedientes**; {frase_cv_carga}.\n"
+        f"* **Regularidad de la Producción:** Sobre un promedio de **{media_prod:,.0f} resoluciones por mes**, lo habitual es emitir entre **{rango_prod_inf:,} y {rango_prod_sup:,} resoluciones mensuales**; {frase_cv_prod}. Su rendimiento típico es de **{stats_dict['Produccion']['mediana']:,.0f} resoluciones por mes**, alcanzando su mayor nivel en **{stats_dict['Produccion']['max']}** y el más bajo en **{stats_dict['Produccion']['min']}**.\n"
+        f"* **Composición al Cierre ({formato_fecha_es(fecha_corte_rank, corto=True)}):** Del inventario activo final, el **{pct_tram_cierre:.1f}%** corresponde a expedientes **En Trámite** y el **{pct_imp_cierre:.1f}%** a expedientes **Resueltos por Impugnar**."
+    )
+
 
     st.markdown("---")
     st.subheader(f"🏆 Ranking 1: Carga Activa a Nivel Nacional (Cierre: {texto_corte})")
@@ -189,17 +239,11 @@ with tab2:
     colores_imp = ['#fbbf24' if s == sede_seleccionada else '#f97316' for s in df_ranking['Sede']]
 
     fig_rank = go.Figure()
-    texto_hover = [
-        f"<b>{s}</b><br>"
-        f"🔵 En Trámite: <b>{t:,}</b><br>"
-        f"🟠 Resuelto por Impugnar: <b>{i:,}</b><br>"
-        f"📊 Carga Total Activa: <b>{tot:,}</b>"
-        for s, t, i, tot in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'])
-    ]
+    texto_hover = [f"<b>{s}</b><br>🔵 En Trámite: <b>{t:,}</b><br>🟠 Resuelto por Impugnar: <b>{i:,}</b><br>📊 Carga Total Activa: <b>{tot:,}</b>" for s, t, i, tot in zip(df_ranking['Sede'], df_ranking['Tramite'], df_ranking['Impugnacion'], df_ranking['Carga_Total'])]
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Tramite'], name='En Trámite', orientation='h', marker_color=colores_tram, hovertext=texto_hover, hovertemplate="%{hovertext}<extra></extra>"))
     fig_rank.add_trace(go.Bar(y=df_ranking['Sede'], x=df_ranking['Impugnacion'], name='Resuelto por Impugnar', orientation='h', marker_color=colores_imp, hovertext=texto_hover, hovertemplate="%{hovertext}<extra></extra>"))
     fig_rank.add_trace(go.Scatter(y=df_ranking['Sede'], x=df_ranking['Carga_Total'], text=df_ranking['Carga_Total'].apply(lambda x: f"  {x:,}"), mode='text', textposition='middle right', showlegend=False, hoverinfo='skip'))
-    fig_rank.update_layout(barmode='stack', height=720, xaxis_title="Cantidad de Expedientes", xaxis_range=[0, df_ranking['Carga_Total'].max() * 1.12], **layout_movil)
+    fig_rank.update_layout(barmode='stack', height=680, xaxis_title="Cantidad de Expedientes", xaxis_range=[0, df_ranking['Carga_Total'].max() * 1.12], **layout_movil)
     fig_rank.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
     st.plotly_chart(fig_rank, use_container_width=True, config=config_plotly, key="graf_rank_carga")
 
@@ -209,14 +253,16 @@ with tab2:
     colores_prod = ['#f59e0b' if s == sede_seleccionada else '#10b981' for s in df_rank_prod['Sede']]
 
     fig_prod_rank = go.Figure()
-    fig_prod_rank.add_trace(go.Bar(x=df_rank_prod['Sede'], y=df_rank_prod['Produccion'], text=df_rank_prod['Produccion'].apply(lambda x: f"{x:,}"), textposition='outside', marker_color=colores_prod, name='Resoluciones Emitidas'))
-    fig_prod_rank.update_layout(height=480, yaxis_title="Total Resoluciones", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
+    fig_prod_rank.add_trace(go.Bar(
+        x=df_rank_prod['Sede'],
+        y=df_rank_prod['Produccion'],
+        text=df_rank_prod['Produccion'].apply(lambda x: f"{x:,}"),
+        textposition='outside',
+        marker_color=colores_prod,
+        name='Resoluciones Emitidas'
+    ))
+    fig_prod_rank.update_layout(height=450, yaxis_title="Total Resoluciones", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
     st.plotly_chart(fig_prod_rank, use_container_width=True, config=config_plotly, key="graf_rank_prod")
-
-
-
-
-
 
 
 
