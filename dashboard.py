@@ -340,6 +340,46 @@ with tab2:
     fig_prod_rank.update_layout(height=460, yaxis_title="Total Producción", xaxis_tickangle=-45, margin=dict(l=10, r=10, t=35, b=110), showlegend=False)
     fig_prod_rank.update_layout(hovermode="closest", hoverlabel=dict(bgcolor="#1e293b", font_size=13, font_color="white", bordercolor="#f59e0b"))
     st.plotly_chart(fig_prod_rank, use_container_width=True, config=config_plotly, key="graf_rank_prod")
+import io
+from generador_pdf import construir_pdf_completo
 
+nombre_sede_limpio = sede_seleccionada.replace(" ", "_").replace("(", "").replace(")", "").replace(".", "")
 
+pdf_bytes = construir_pdf_completo(
+    sede_seleccionada, txt_ult_largo, ultimo_mes, pct_tramite, pct_impug,
+    anio_actual, prod_acum_actual, df_filtrado, fechas_futuras, proy_carga,
+    carga_inf, carga_sup, proy_prod, prod_inf, prod_sup, prec_carga, prec_prod,
+    anio_sel, fecha_corte_rank, fila_cierre, df_desc, resumen_anual, filas_est,
+    carga_fin, media_carga, rango_carga_inf, rango_carga_sup, cv_carga,
+    media_prod, rango_prod_inf, rango_prod_sup, cv_prod, stats_dict,
+    pct_tram_cierre, pct_imp_cierre, df_ranking, texto_corte, df_rank_prod,
+    formato_fecha_es
+)
 
+buffer_excel = io.BytesIO()
+with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+    df_tabla_proy.to_excel(writer, sheet_name='Proyecciones_95', index=False)
+    resumen_anual.to_excel(writer, sheet_name='Resumen_Anual', index=False)
+    pd.DataFrame(filas_est).to_excel(writer, sheet_name='Indicadores_Estadisticos', index=False)
+    df_ranking[['Sede', 'Tramite', 'Impugnacion', 'Carga_Total', 'Pct_Nac']].sort_values('Carga_Total', ascending=False).to_excel(writer, sheet_name='Ranking_Nacional_Carga', index=False)
+    df_rank_prod[['Sede', 'Produccion', 'Pct_Nac']].to_excel(writer, sheet_name='Ranking_Nacional_Prod', index=False)
+
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("📥 Exportar Reportes")
+
+    st.download_button(
+        label="🖨️ Descargar Reporte en PDF",
+        data=bytes(pdf_bytes) if pdf_bytes is not None else b"",
+        file_name=f"Reporte_Ejecutivo_ANC_{nombre_sede_limpio}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
+    st.download_button(
+        label="📊 Descargar Datos en Excel",
+        data=buffer_excel.getvalue(),
+        file_name=f"Datos_ANC_{nombre_sede_limpio}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
